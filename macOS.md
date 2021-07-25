@@ -58,6 +58,12 @@ ZSH_THEME="powerlevel10k/powerlevel10k"
 
 터미널 재시작 후 설정 필요
 
+만약 설정 화면이 나오지 않으면
+
+```zsh
+p10k configure
+```
+
 ### Powerline font 설치
 
 ```zsh
