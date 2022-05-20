@@ -36,8 +36,8 @@ CREATE INDEX idx_a ON a (aid);
 CREATE INDEX idx_b ON b (bid); 
 CREATE INDEX idx_c ON c (cid); 
 CREATE VIEW v AS SELECT * 
-                FROM a, b
-                WHERE aid = bid;
+	FROM a, b
+	WHERE aid = bid;
 ```
 
 마지막으로 처음 두 테이블을 결합하는 뷰가 있습니다.
@@ -49,7 +49,7 @@ CREATE VIEW v AS SELECT *
 SELECT *
 FROM v, c
 WHERE v.aid = c.cid
-AND cid = 4;
+	AND cid = 4;
 ```
 
 실제 최적화 프로세스를 살펴보기 전에 플래너가 가지고 있는 몇 가지 옵션에 중점을 둘 것입니다.
@@ -68,11 +68,11 @@ AND cid = 4;
 
 ```
 for x in table1:
-for y in table2:
-if x.field == y.field
-issue row
-else
-keep doin
+	for y in table2:
+		if x.field == y.field
+			issue row
+		else
+			keep doing
 ```
 
 중첩 루프는 측면 중 하나가 매우 작고 제한된 데이터 집합만 포함하는 경우에 종종 사용됩니다. 이 예에서 중첩된 루프는 코드를 통해 1억 x 2억 번의 반복을 초래할 것이다. 런타임은 단순히 폭발적으로 증가할 것이기 때문에 이것은 분명히 옵션이 아니다.
@@ -85,8 +85,8 @@ keep doin
 
 ```
 Hash join
-Sequential scan table 1
-Sequential scan table 
+	Sequential scan table 1
+	Sequential scan table 2
 ```
 
 양쪽을 해시할 수 있고 해시 키를 비교할 수 있으므로 결과를 얻을 수 있습니다.
