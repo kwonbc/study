@@ -842,7 +842,7 @@ test=# SELECT * FROM a LEFT JOIN b ON (aid = bid);
 ```
 
 | aid | bid |
-|---|---|
+|-----|-----|
 | 1 |   |
 | 2 | 2 |
 | 3 | 3 |
@@ -852,12 +852,14 @@ test=# SELECT * FROM a LEFT JOIN b ON (aid = bid);
 다음 예는 많은 사람들에게 의외일 수 있습니다.
 
 ```
-test SELECT * FROM a LEFT JOIN b ON (aid = bid AND bid = 2); obnu aid | bid
-11
-21
-(3 rows)
-2
+test=# SELECT * FROM a LEFT JOIN b ON (aid = bid and bid = 2);
 ```
+
+| aid | bid |
+|-----|-----|
+| 1 |   |
+| 2 | 2 |
+| 3 |   |
 
 아니요, 행 수는 줄어들지 않고 일정하게 유지됩니다. 대부분의 사람들은 조인에 행이 하나만 있을 것이라고 가정하지만 이는 사실이 아니며 숨겨진 문제로 이어질 것입니다.
 
@@ -872,36 +874,36 @@ avg avg
 (1 row)
 ```
 
+| avg | avg(1) |
+|-----|--------|
+| 2.0000000000000000 | 2.0000000000000000 |
+
 대부분의 사람들은 평균이 단일 행을 기반으로 계산된다고 가정합니다. 그러나 앞에서 언급한 것처럼 이것은 사실이 아니며 어떤 이유로 PostgreSQL이 조인의 왼쪽에 있는 테이블을 인덱싱하지 않기 때문에 이와 같은 쿼리는 종종 성능 문제로 간주됩니다. 물론 우리는 여기서 성능 문제를 보고 있지 않습니다. 우리는 확실히 의미론적 문제를 보고 있습니다. 종종 외부 조인을 작성하는 사람들은 PostgreSQL에 무엇을 요청하는지 실제로 알지 못합니다. 따라서 제 조언은 클라이언트가 보고한 성능 문제를 공격하기 전에 항상 외부 조인의 의미론적 정확성에 대해 질문하는 것입니다.
 
 이러한 종류의 작업이 귀하의 쿼리가 정확하고 필요한 작업을 정확하게 수행하는지 확인하는 것이 얼마나 중요한지 아무리 강조해도 지나치지 않습니다.
 
 ### 외부 조인 처리
 
-비즈니스 관점에서 쿼리가 실제로 올바른지 확인한 후에는 옵티마이저가 외부 조인의 속도를 높이기 위해 무엇을 할 수 있는지 확인하는 것이 좋습니다. 가장 중요한 것은 PostgreSQL이 많은 경우에 속도를 높이기 위해 내부 조인을 재정렬할 수 있다는 것입니다.
-극적으로. 그러나 외부 조인의 경우 이것이 항상 가능한 것은 아닙니다. 소수의 재정렬 작업만 실제로 허용됩니다.
+비즈니스 관점에서 쿼리가 실제로 올바른지 확인한 후에는 옵티마이저가 외부 조인의 속도를 높이기 위해 무엇을 할 수 있는지 확인하는 것이 좋습니다. 가장 중요한 것은 PostgreSQL이 많은 경우 내부 조인을 재정렬하여 속도를 크게 높일 수 있다는 것입니다. 그러나 외부 조인의 경우 이것이 항상 가능한 것은 아닙니다. 소수의 재정렬 작업만 실제로 허용됩니다:
 
 ```
-(A left join B on (Pab)) innerjoin C on (Pac) = (A innerjoin C on (Pac))
-left join Bon (Pab)
+(A leftjoin B on (Pab)) innerjoin C on (Pac) = (A innerjoin C on (Pac)) leftjoin B on (Pab)
 ```
 
 Pac는 A와 C 등을 참조하는 술어입니다. 이 경우 Pac는 B를 참조할 수 없습니다. 그렇지 않으면 변환이 무의미합니다.
 
-* (A left join Bon (Pab)) left joi Con (Pac) = left join con
-(Pac)) left join B on (Pab)
-* (A left join B on (Pab)) left join Con (Pbc) = (A left join (B
-left join Con (Pbc)) on (Pab)
+* (A leftjoin B on (Pab)) leftjoin C on (Pac) = leftjoin C on (Pac)) leftjoin B on (Pab)
+* (A leftjoin B on (Pab)) leftjoin C on (Pbc) = (A leftjoin (B leftjoin C on (Pbc)) on (Pab)
 
-마지막 규칙은 Pbc 술어가 모든 null Brows에 대해 실패해야 하는 경우에만 true를 유지합니다(즉, Pbc는 B의 최소한 하나의 열에 대해 엄격함). Pbc가 엄격하지 않은 경우 첫 번째 형식은 null이 아닌 C 열이 있는 일부 행을 생성하는 반면 두 번째 형식은 해당 항목을 null로 만듭니다.
+마지막 규칙은 Pbc 술어가 모든 널 B 행에 대해 실패해야 하는 경우에만 참입니다(즉, Pbc는 B의 최소한 하나의 열에 대해 엄격함). Pbc가 엄격하지 않은 경우 첫 번째 형식은 null이 아닌 c 열이 있는 일부 행을 생성하는 반면 두 번째 형식은 해당 항목을 null로 만듭니다.
 
 일부 조인은 재정렬될 수 있지만 일반적인 유형의 쿼리는 조인 재정렬의 이점을 얻을 수 없습니다. 몇 가지 특별한 속성이 있는 다음 코드 스니펫을 고려하십시오.
 
 ```
-SELECT
-FROM a LEFT JOIN ON (aid = bid)
-LEFT JOIN C ON (bid = cid)
-LEFT JOIN D ON (cid = did)
+SELECT ...
+	FROM a LEFT JOIN ON b ON (aid = bid)
+		LEFT JOIN c ON (bid = cid)
+		LEFT JOIN d ON (cid = did)
 ```
 
 조인 재정렬은 여기서 우리에게 아무런 도움이 되지 않습니다(불가능하기 때문에).
@@ -919,14 +921,16 @@ join_collapse_limit 변수는 개발자에게 실제로 이러한 문제를 해�
 ```
 SELECT * FROM tabi, tab2, tab3
 WHERE tabi.id = tab2.id
-AND tab2.ref = tab3. id;
+	AND tab2.ref = tab3.id;
+	
 SELECT * FROM tab1 CROSS JOIN tab2
 CROSS JOIN tab3
 WHERE tabi.id = tab2.id
-AND tab2.ref = tab3.id;
+	AND tab2.ref = tab3.id;
+
 SELECT * FROM tabi JOIN (tab2 JOIN tab3
-ON (tab2.ref = tab3.id))
-ON (tab1.id = tab2.id);
+	ON (tab2.ref = tab3.id))
+	ON (tab1.id = tab2.id);
 ```
 
 기본적으로 이 세 가지 쿼리는 동일하며 플래너에서 동일한 방식으로 처리됩니다. 첫 번째 쿼리는 암시적 조인으로 구성됩니다. 마지막 것은 명시적 조인으로만 구성됩니다. 내부적으로 플래너는 이러한 요청을 검사하고 그에 따라 조인을 주문하여 최상의 런타임을 보장합니다. 여기서 문제는 PostgreSQL이 암시적으로 계획하는 명시적 조인의 수입니다. 이것이 바로 join_collapse_limit 변수를 설정하여 플래너에게 알릴 수 있는 것입니다. 기본값은 일반 쿼리에 적합합니다. 그러나 쿼리에 매우 많은 수의 조인이 포함된 경우 이 설정을 사용하면 계획 시간을 상당히 줄일 수 있습니다. 계획 시간을 줄이는 것은 좋은 처리량을 유지하는 데 필수적일 수 있습니다.
@@ -936,16 +940,52 @@ join_collapse_limit 변수가 계획을 어떻게 변경하는지 보기 위해 
 ```
 test=# EXPLAIN WITH X AS
 (
-SELECT *
-FROM generate_series (1, 1000) AS id
+	SELECT *
+	FROM generate_series (1, 1000) AS id
 )
 SELECT *
 FROM X AS a
-JOIN X AS bON (a.id = b.id)
-JOIN X AS C ON (b.id = c.id)
-JOIN X AS d ON (c.id = d.id)
-JOIN X AS e ON (d.id = e. id)
-JOIN X AS E ON (e.id = f.id);
+	JOIN X AS b ON (a.id = b.id)
+	JOIN X AS c ON (b.id = c.id)
+	JOIN X AS d ON (c.id = d.id)
+	JOIN X AS e ON (d.id = e.id)
+	JOIN X AS f ON (e.id = f.id);
+	
+--------------------------------------------------
+
+Merge Join  (cost=428.98..48286.48 rows=3125000 width=24)
+  Merge Cond: (a.id = d.id)
+  CTE x
+    ->  Function Scan on generate_series id  (cost=0.00..10.00 rows=1000 width=4)
+  ->  Merge Join  (cost=209.49..669.49 rows=25000 width=12)
+        Merge Cond: (c.id = a.id)
+        ->  Sort  (cost=69.83..72.33 rows=1000 width=4)
+              Sort Key: c.id
+              ->  CTE Scan on x c  (cost=0.00..20.00 rows=1000 width=4)
+        ->  Materialize  (cost=139.66..232.16 rows=5000 width=8)
+              ->  Merge Join  (cost=139.66..219.66 rows=5000 width=8)
+                    Merge Cond: (a.id = b.id)
+                    ->  Sort  (cost=69.83..72.33 rows=1000 width=4)
+                          Sort Key: a.id
+                          ->  CTE Scan on x a  (cost=0.00..20.00 rows=1000 width=4)
+                    ->  Sort  (cost=69.83..72.33 rows=1000 width=4)
+                          Sort Key: b.id
+                          ->  CTE Scan on x b  (cost=0.00..20.00 rows=1000 width=4)
+  ->  Materialize  (cost=209.49..731.99 rows=25000 width=12)
+        ->  Merge Join  (cost=209.49..669.49 rows=25000 width=12)
+              Merge Cond: (f.id = d.id)
+              ->  Sort  (cost=69.83..72.33 rows=1000 width=4)
+                    Sort Key: f.id
+                    ->  CTE Scan on x f  (cost=0.00..20.00 rows=1000 width=4)
+              ->  Materialize  (cost=139.66..232.16 rows=5000 width=8)
+                    ->  Merge Join  (cost=139.66..219.66 rows=5000 width=8)
+                          Merge Cond: (d.id = e.id)
+                          ->  Sort  (cost=69.83..72.33 rows=1000 width=4)
+                                Sort Key: d.id
+                                ->  CTE Scan on x d  (cost=0.00..20.00 rows=1000 width=4)
+                          ->  Sort  (cost=69.83..72.33 rows=1000 width=4)
+                                Sort Key: e.id
+                                ->  CTE Scan on x e  (cost=0.00..20.00 rows=1000 width=4)
 ```
 
 축소 제한을 처리한 후 이제 몇 가지 추가 플래너 옵션을 살펴보겠습니다.
@@ -959,16 +999,15 @@ JOIN X AS E ON (e.id = f.id);
 
 ```
 test=# explain SELECT *
-FROM generate_series (1, 100) AS a,
-generate_series (1, 100) AS b
-WHERE a = b;
-QUERY PLAN
-Hash Join (cost=2.25..4.63 rows=100 width=8)
-Hash Cond: (a.a = b.b)
--> Function Scan on generate_series a (cost=0.00..1.00 rows=100 width=4)
--> Hash (cost=1.00..1.00 rows=100 width=4)
--> Function Scan on generate_series b (cost=0.00..1.00 rows=100 width=4)
-(5 rows)
+	FROM generate_series (1, 100) AS a,
+		generate_series (1, 100) AS b
+	WHERE a = b;
+
+Hash Join  (cost=2.25..4.63 rows=100 width=8)
+  Hash Cond: (a.a = b.b)
+  ->  Function Scan on generate_series a  (cost=0.00..1.00 rows=100 width=4)
+  ->  Hash  (cost=1.00..1.00 rows=100 width=4)
+        ->  Function Scan on generate_series b  (cost=0.00..1.00 rows=100 width=4)
 ```
 
 여기서 PostgreSQL은 함수를 스캔하고 해시 조인을 수행합니다. PostgreSQL 11 또는 이전 버전에서 동일한 쿼리를 실행하고 실행 계획을 보여드리겠습니다.
@@ -979,8 +1018,6 @@ Merge Join (cost=119.66..199.66 rows=5000 width=8)
 Merge Cond: (a.a - b.b)
 -> Sort (cost=59.83..62.33 rows=1000 width=4)
 Sort Key: a.a
-[203]
-Optimizing Queries for Good Performance
 -> Function Scan on generate_series a
 (cost=0.00.. 10.00 rows=1000 width=4)
 -> Sort (cost=59.83..62.33 rows=1000 width=4)
@@ -992,16 +1029,27 @@ Sort Key: b.b
 
 이 두 요금제의 차이점이 보이시나요? PostgreSQL 12에서 집합 반환 함수의 추정치는 이미 정확합니다. 이전 버전에서 옵티마이저는 여전히 집합 반환 함수가 항상 100개의 행을 반환할 것으로 추정합니다. PostgreSQL에는 결과 집합을 추정하는 데 도움이 되는 옵티마이저 지원 기능이 있습니다. 따라서 PostgreSQL 12 이상의 계획은 이전 계획보다 훨씬 우수합니다.
 
-새로운 계획에서 우리가 볼 수 있는 것은 해시 조인이 수행된다는 것입니다. 이것은 물론 일을 수행하는 가장 효율적인 방법입니다. 그러나 우리가 옵티마이저보다 더 똑똑하다면 어떻게 될까요? 다행히 PostgreSQL에는 옵티마이저를 무시할 수 있는 수단이 있습니다. 에서 변수를 설정할 수 있습니다.
-기본 비용 견적을 변경하는 연결. 작동 방식은 다음과 같습니다.
+새로운 계획에서 우리가 볼 수 있는 것은 해시 조인이 수행된다는 것입니다. 이것은 물론 일을 수행하는 가장 효율적인 방법입니다. 그러나 우리가 옵티마이저보다 더 똑똑하다면 어떻게 될까요? 다행히 PostgreSQL에는 옵티마이저를 무시할 수 있는 수단이 있습니다. 연결에서 기본 비용 추정치를 변경하는 변수를 설정할 수 있습니다. 작동 방식은 다음과 같습니다.
 
 ```
 test=# SET enable_hashjoin to off;
 SET
 test=# explain SELECT *
-FROM generate_series (1, 100) AS a,
-generate_series (1, 100) AS b
-WHERE a = b;
+	FROM generate_series (1, 100) AS a,
+		generate_series (1, 100) AS b
+	WHERE a = b;
+
+Merge Join  (cost=8.65..10.65 rows=100 width=8)
+  Merge Cond: (a.a = b.b)
+  ->  Sort  (cost=4.32..4.57 rows=100 width=4)
+        Sort Key: a.a
+        ->  Function Scan on generate_series a  (cost=0.00..1.00 rows=100 width=4)
+  ->  Sort  (cost=4.32..4.57 rows=100 width=4)
+        Sort Key: b.b
+        ->  Function Scan on generate_series b  (cost=0.00..1.00 rows=100 width=4)
+
+--------------------------------------------------
+
 QUERY PLAN
 Merge Join (cost=8.65..10.65 rows=100 width=8)
 Merge Cond: (a.a = b.b)
@@ -1020,8 +1068,21 @@ PostgreSQL은 hashjoin 함수가 나쁘다고 가정하고 비용을 무한대�
 
 ```
 test=# explain SELECT *
-FROM generate_series (1, 100) AS a, generate_series (1, 100) AS b
-WHERE a = b;
+	FROM generate_series (1, 100) AS a, 
+		generate_series (1, 100) AS b
+	WHERE a = b;
+
+Merge Join  (cost=8.65..10.65 rows=100 width=8)
+  Merge Cond: (a.a = b.b)
+  ->  Sort  (cost=4.32..4.57 rows=100 width=4)
+        Sort Key: a.a
+        ->  Function Scan on generate_series a  (cost=0.00..1.00 rows=100 width=4)
+  ->  Sort  (cost=4.32..4.57 rows=100 width=4)
+        Sort Key: b.b
+        ->  Function Scan on generate_series b  (cost=0.00..1.00 rows=100 width=4)
+
+--------------------------------------------------
+
 QUERY PLAN
 Nested Loop (cost=0.01. .226.00 rows=100 width=8)
 Join Filter: (a.a = b.b)
@@ -1062,12 +1123,13 @@ true
 # - Planner Method Configuration -
 #enable_bitmapscan = on
 #enable_hashagg = on
-#enable_hashjoin - on
-#enable_indexscan - on
+#enable_hashjoin = on
+#enable_indexscan = on
 #enable_indexonlyscan = on
-#enable_material - on
+#enable_material = on
 #enable_mergejoin = on
-#enable_nest loop = on #enable_parallel_append = on
+#enable_nest loop = on 
+#enable_parallel_append = on
 #enable_seqscan = on
 #enable_sort = on
 #enable_incrementalsort = on
@@ -1093,7 +1155,7 @@ PostgreSQL은 여행하는 세일즈맨 문제처럼 이 문제에 접근하고 
 첫째, 유전자 최적화 프로그램은 무작위 계획 세트를 생성합니다. 그런 다음 해당 계획을 검사합니다. 나쁜 것은 버리고 좋은 것의 유전자를 바탕으로 새로운 것이 만들어집니다. 이러한 방식으로 잠재적으로 더 나은 계획이 생성됩니다. 이 과정은 원하는 만큼 반복할 수 있습니다. 하루가 끝나면 무작위 계획을 사용하는 것보다 훨씬 더 좋을 것으로 예상되는 계획이 남습니다. 다음 코드 줄과 같이 geqo 변수를 조정하여 GEQO를 켜고 끌 수 있습니다.
 
 ```
-test=# SHOW gego;
+test=# SHOW geqo;
 geqo
 on
 (1 row)
@@ -1145,8 +1207,6 @@ CREATE TABLE
 test=# \d t_data_2016
 Table "public.t_data_2016"
 Column Type | Collation Nullable | Default
-( 208 )
-Chapter 6
 ====
 id | integer | | not null |
 next val('t_data_id_seq' : :regclass)
@@ -1170,7 +1230,8 @@ CREATE TABLE
 자식 테이블은 실제로 부모보다 더 많은 열을 가질 수 있습니다. 더 많은 필드를 추가하는 것은 간단합니다.
 
 ```
-test=# CREATE TABLE t_data_2013 (special text) INHERITS (t_data); CREATE TABLE
+test=# CREATE TABLE t_data_2013 (special text) INHERITS (t_data); 
+CREATE TABLE
 ```
 
 이 경우 특수 열이 추가되었습니다. 부모에게는 영향을 미치지 않습니다. 그것은 단지 아이들을 풍요롭게 하고 더 많은 데이터를 보유할 수 있게 합니다.
@@ -1198,6 +1259,16 @@ PostgreSQL이 파티셔닝을 수행하는 방법을 이해하려면 계획을 �
 
 ```
 test=# EXPLAIN SELECT * FROM t_data;
+
+Append  (cost=0.00..106.16 rows=4411 width=40)
+  ->  Seq Scan on t_data t_data_1  (cost=0.00..0.00 rows=1 width=40)
+  ->  Seq Scan on t_data_2016 t_data_2  (cost=0.00..22.00 rows=1200 width=40)
+  ->  Seq Scan on t_data_2015 t_data_3  (cost=0.00..22.00 rows=1200 width=40)
+  ->  Seq Scan on t_data_2014 t_data_4  (cost=0.00..22.00 rows=1200 width=40)
+  ->  Seq Scan on t_data_2013 t_data_5  (cost=0.00..18.10 rows=810 width=40)
+
+--------------------------------------------------
+
 QUERY PLAN
 Append (cost=0.00..106.16 rows=4411 width=40)
 -> Seq Scan on t_data t_data_1 (cost=0.00..0.00 rows=1 width=40)
@@ -1219,6 +1290,21 @@ width=40)
 
 ```
 test=# EXPLAIN SELECT * FROM t_data WHERE t = '2016-01-04';
+
+Append  (cost=0.00..95.24 rows=23 width=40)
+  ->  Seq Scan on t_data t_data_1  (cost=0.00..0.00 rows=1 width=40)
+        Filter: (t = '2016-01-04'::date)
+  ->  Seq Scan on t_data_2016 t_data_2  (cost=0.00..25.00 rows=6 width=40)
+        Filter: (t = '2016-01-04'::date)
+  ->  Seq Scan on t_data_2015 t_data_3  (cost=0.00..25.00 rows=6 width=40)
+        Filter: (t = '2016-01-04'::date)
+  ->  Seq Scan on t_data_2014 t_data_4  (cost=0.00..25.00 rows=6 width=40)
+        Filter: (t = '2016-01-04'::date)
+  ->  Seq Scan on t_data_2013 t_data_5  (cost=0.00..20.13 rows=4 width=40)
+        Filter: (t = '2016-01-04'::date)
+
+--------------------------------------------------
+
 QUERY PLAN
 Append (cost=0.00..95.24 rows=23 width=40)
 -> Seq Scan on t_data t_data_1 (cost=0.00..0.00 rows=1 width=40)
@@ -1242,16 +1328,16 @@ PostgreSQL은 구조의 모든 파티션에 필터를 적용합니다. 테이블
 
 ```
 test=# ALTER TABLE t_data_2013
-ADD CHECK (t < '2014-01-01');
+	ADD CHECK (t < '2014-01-01');
 ALTER TABLE
 test=# ALTER TABLE t_data_2014
-ADD CHECK (t >= '2014-01-01' AND t < '2015-01-01');
+	ADD CHECK (t >= '2014-01-01' AND t < '2015-01-01');
 ALTER TABLE
 test=# ALTER TABLE t_data_2015
-ADD CHECK (t >= '2015-01-01' AND t < '2016-01-01');
+	ADD CHECK (t >= '2015-01-01' AND t < '2016-01-01');
 ALTER TABLE
 test=# ALTER TABLE t_data_2016
-ADD CHECK (t >= '2016-01-01' AND t < '2017-01-01');
+	ADD CHECK (t >= '2016-01-01' AND t < '2017-01-01');
 ALTER TABLE
 ```
 
@@ -1264,7 +1350,18 @@ PostgreSQL에서 이러한 제약 조건은 겹칠 수 있습니다. 이는 금�
 다음은 해당 테이블 제약 조건을 추가한 후 발생하는 일입니다.
 
 ```
-test=# EXPLAIN SELECT * FROM t_data WHERE t - 2016-01-04';
+test=# EXPLAIN SELECT * FROM t_data WHERE t = '2016-01-04';
+
+Append  (cost=0.00..50.06 rows=13 width=40)
+  ->  Seq Scan on t_data t_data_1  (cost=0.00..0.00 rows=1 width=40)
+        Filter: (t = '2016-01-04'::date)
+  ->  Seq Scan on t_data_2016 t_data_2  (cost=0.00..25.00 rows=6 width=40)
+        Filter: (t = '2016-01-04'::date)
+  ->  Seq Scan on t_data_2015 t_data_3  (cost=0.00..25.00 rows=6 width=40)
+        Filter: (t = '2016-01-04'::date)
+
+--------------------------------------------------
+
 QUERY PLAN
 Append (cost=0.00.. 25.04 rows=7 width=40)
 -> Seq Scan on t_data t_data_1 (cost=0.00..0.00 rows=1 width=40)
@@ -1371,19 +1468,20 @@ CASCADE 절은 PostgreSQL이 부모 테이블과 함께 해당 개체를 실제�
 
 파티셔닝이 도입된 이후로 많은 것들이 PostgreSQL에 추가되었고 예전 세계에서 보았던 많은 것들이 그 이후로 자동화되거나 더 쉬워졌습니다. 그러나 이러한 것들을 보다 체계적으로 살펴보겠습니다.
 
-수년 동안 PostgreSQL 커뮤니티는 기본 제공 파티셔닝에 대해 작업해 왔습니다. 마지막으로 PostgreSQL 10.0은 코어 내 파티셔닝의 첫 번째 구현을 제공했습니다. PostgreSQL 10에서 파티셔닝 기능은 여전히 매우 기본적이어서 많은
-PostgreSQL 11, 12, 그리고 현재 13에서는 이 중요한 기능을 사용하려는 사람들이 더 쉽게 사용할 수 있도록 항목이 개선되었습니다.
+수년 동안 PostgreSQL 커뮤니티는 기본 제공 파티셔닝에 대해 작업해 왔습니다. 마지막으로 PostgreSQL 10.0은 코어 내 파티셔닝의 첫 번째 구현을 제공했습니다. PostgreSQL 10에서 파티셔닝 기능은 여전히 매우 기본적이었습니다. 따라서 PostgreSQL 11, 12 및 현재 13에서는 이 중요한 기능을 사용하려는 사람들이 훨씬 쉽게 사용할 수 있도록 많은 부분이 개선되었습니다.
 
 파티셔닝이 어떻게 작동하는지 보여주기 위해 다음과 같이 범위 파티셔닝을 특징으로 하는 간단한 예제를 컴파일했습니다.
 
 ```
-CREATE TABLE data (
-payload integer
-> PARTITION BY RANGE (payload);
-CREATE TABLE negatives PARTITION
-OF data FOR VALUES FROM (MINVALUE) TO (0) ;
-CREATE TABLE positives PARTITION
-OF data FOR VALUES FROM (0) TO (MAXVALUE);
+CREATE TABLE data ( 
+	payload integer
+) PARTITION BY RANGE (payload); 
+
+CREATE TABLE negatives PARTITION 
+	OF data FOR VALUES FROM (MINVALUE) TO (O); 
+
+CREATE TABLE positives PARTITION 
+	OF data FOR VALUES FROM (0) TO (MAXVALUE); 
 ```
 
 이 예에서 한 파티션은 모든 음수 값을 보유하고 다른 파티션은 양수 값을 처리합니다. 상위 테이블을 생성하는 동안 데이터를 분할할 방법을 간단히 지정할 수 있습니다.
@@ -1403,8 +1501,6 @@ test-# INSERT INTO data VALUES (5);
 INSERT O 1
 test=# SELECT * FROM data;
 payload
-[215]
-Optimizing Queries for Good Performance
 5
 (1 row)
 test=# SELECT * FROM positives;
@@ -1417,9 +1513,9 @@ payload
 
 ```
 test=# UPDATE data
-SET payload = -10
-WHERE payload = 5
-RETURNING *;
+	SET payload = -10
+	WHERE payload = 5
+	RETURNING *;
 payload
 -10
 (1 row)
@@ -1466,8 +1562,7 @@ CREATE TABLE
 
 어디에도 맞지 않는 모든 데이터는 이 기본 파티션에 저장되므로 올바른 파티션 생성을 절대 잊어서는 안 됩니다. 경험에 따르면 기본 파티션의 존재는 시간이 지남에 따라 응용 프로그램을 훨씬 더 안정적으로 만듭니다.
 
-이 섹션에서는 파티셔닝에 대해 배웠습니다. 다음 섹션에서는
-몇 가지 고급 성능 매개변수를 통해
+이 섹션에서는 파티셔닝에 대해 배웠습니다. 다음 섹션에서는 몇 가지 고급 성능 매개변수를 안내합니다.
 
 ## 좋은 쿼리 성능을 위한 매개변수 조정
 
@@ -1476,16 +1571,20 @@ CREATE TABLE
 이 섹션에서 우리는 더 많은 메모리가 당신을 위해 무엇을 할 수 있고 PostgreSQL이 당신을 위해 그것을 어떻게 사용할 수 있는지 배울 것입니다. 다시 말하지만, 이 섹션에서는 계획을 더 읽기 쉽게 만들기 위해 단일 코어 쿼리를 사용한다고 가정합니다. 항상 하나의 코어만 작동하도록 하려면 다음 명령을 사용하십시오.
 
 ```
-test=# SET max_parallel_workers_per_gather to 0; SET
+test=# SET max_parallel_workers_per_gather to 0; 
+SET
 ```
 
 다음은 메모리 매개변수가 수행할 수 있는 작업을 보여주는 간단한 예입니다.
 
 ```
-test=# CREATE TABLE t_test (id serial, name text); CREATE TABLE
-test=# INSERT INTO t_test (name) SELECT 'hans' FROM generate_series (1, 100000); INSERT 0 100000
+test=# CREATE TABLE t_test (id serial, name text); 
+CREATE TABLE
+test=# INSERT INTO t_test (name) 
+	SELECT 'hans' FROM generate_series (1, 100000); 
+INSERT 0 100000
 test=# INSERT INTO t_test (name)
-SELECT 'paul' FROM generate_series (1, 100000);
+	SELECT 'paul' FROM generate_series (1, 100000);
 INSERT 0 100000
 ```
 
@@ -1495,18 +1594,39 @@ PostgreSQL의 기본 메모리 설정을 사용하여 간단한 쿼리를 실행
 
 ```
 test=# SELECT name, count(*) FROM t_test GROUP BY 1;
-name | count
-hans | 100000
-paul 100000
-(2 rows)
 ```
+
+| name | count |
+|------|-------|
+| hans | 100000|
+| paul | 100000|
 
 두 개의 행이 반환되며 이는 놀라운 일이 아닙니다. 여기서 중요한 것은 결과가 아니라 PostgreSQL이 배후에서 수행하는 작업입니다.
 
 ```
 test=# EXPLAIN ANALYZE SELECT name, count(*)
-FROM t_test
-GROUP BY 1; Ortesis pritenib
+	FROM t_test
+	GROUP BY 1;
+	
+Finalize GroupAggregate  (cost=3846.75..3847.01 rows=2 width=13) (actual time=34.640..38.428 rows=2 loops=1)
+  Group Key: name
+  ->  Gather Merge  (cost=3846.75..3846.98 rows=2 width=13) (actual time=34.635..38.423 rows=4 loops=1)
+        Workers Planned: 1
+        Workers Launched: 1
+        ->  Sort  (cost=2846.74..2846.74 rows=2 width=13) (actual time=21.236..21.236 rows=2 loops=2)
+              Sort Key: name
+              Sort Method: quicksort  Memory: 25kB
+              Worker 0:  Sort Method: quicksort  Memory: 25kB
+              ->  Partial HashAggregate  (cost=2846.71..2846.73 rows=2 width=13) (actual time=21.209..21.209 rows=2 loops=2)
+                    Group Key: name
+                    Batches: 1  Memory Usage: 24kB
+                    Worker 0:  Batches: 1  Memory Usage: 24kB
+                    ->  Parallel Seq Scan on t_test  (cost=0.00..2258.47 rows=117647 width=5) (actual time=0.014..4.851 rows=100000 loops=2)
+Planning Time: 1.212 ms
+Execution Time: 38.521 ms
+
+--------------------------------------------------
+
 QUERY PLAN
 HashAggregate (cost=4082.00..4082.01 rows=1 width=13)
 (actual time=59.876..59.877 rows=2 loops=1)
@@ -1525,6 +1645,16 @@ PostgreSQL은 그룹의 수가 실제로 매우 적다는 것을 알아냈습니
 
 ```
 test=# EXPLAIN ANALYZE SELECT id, count(*) FROM t_test GROUP BY 1;
+
+HashAggregate  (cost=4082.00..6082.00 rows=200000 width=12) (actual time=43.513..70.347 rows=200000 loops=1)
+  Group Key: id
+  Batches: 1  Memory Usage: 28689kB
+  ->  Seq Scan on t_test  (cost=0.00..3082.00 rows=200000 width=4) (actual time=0.010..7.435 rows=200000 loops=1)
+Planning Time: 0.057 ms
+Execution Time: 76.314 ms
+
+--------------------------------------------------
+
 QUERY PLAN
 HashAggregate (cost=7207.00..9988.25 rows=200000 width=12)
 (actual time=76.609..140.297 rows=200000 loops=1)
@@ -1551,6 +1681,18 @@ SET
 
 ```
 test # EXPLAIN ANALYZE SELECT id, count (*) FROM t_test GROUP BY 1;
+
+GroupAggregate  (cost=20691.64..24191.64 rows=200000 width=12) (actual time=30.092..70.389 rows=200000 loops=1)
+  Group Key: id
+  ->  Sort  (cost=20691.64..21191.64 rows=200000 width=4) (actual time=30.086..35.182 rows=200000 loops=1)
+        Sort Key: id
+        Sort Method: quicksort  Memory: 15520kB
+        ->  Seq Scan on t_test  (cost=0.00..3082.00 rows=200000 width=4) (actual time=0.056..13.401 rows=200000 loops=1)
+Planning Time: 0.245 ms
+Execution Time: 74.494 ms
+
+--------------------------------------------------
+
 QUERY PLAN
 GroupAggregate (cost=23428.64..26928.64 rows=200000 width=12)
 (actual time-55.259..130.352 rows=200000 loops=1)
@@ -1570,7 +1712,7 @@ Execution Time: 153.923 ms
 PostgreSQL은 이제 그룹 수가 훨씬 더 많다는 것을 파악하고 빠르게 전략을 변경합니다. 문제는 너무 많은 항목을 포함하는 해시가 메모리에 맞지 않는다는 것입니다.
 
 ```
-test # SHOW work_mem ;
+test # SHOW work_mem;
 work_mem
 4MB
 (1 row)
@@ -1589,6 +1731,18 @@ SET
 
 ```
 test=# EXPLAIN ANALYZE SELECT id, count(*) FROM t_test GROUP BY 1;
+
+GroupAggregate  (cost=20691.64..24191.64 rows=200000 width=12) (actual time=30.092..70.389 rows=200000 loops=1)
+  Group Key: id
+  ->  Sort  (cost=20691.64..21191.64 rows=200000 width=4) (actual time=30.086..35.182 rows=200000 loops=1)
+        Sort Key: id
+        Sort Method: quicksort  Memory: 15520kB
+        ->  Seq Scan on t_test  (cost=0.00..3082.00 rows=200000 width=4) (actual time=0.056..13.401 rows=200000 loops=1)
+Planning Time: 0.245 ms
+Execution Time: 74.494 ms
+
+--------------------------------------------------
+
 QUERY PLAN
 HashAggregate (cost=4082.00..6082.00 rows=200000 width=12)
 (actual time=76.967..118.926 rows=200000 loops=1)
@@ -1630,8 +1784,22 @@ Execution time: 55.520 ms
 
 ```
 test=# EXPLAIN ANALYZE SELECT * FROM t_test ORDER BY name,
-QUERY PLAN
 id LIMIT 10;
+
+Limit  (cost=5800.79..5801.94 rows=10 width=9) (actual time=88.260..91.982 rows=10 loops=1)
+  ->  Gather Merge  (cost=5800.79..19330.19 rows=117647 width=9) (actual time=88.258..91.981 rows=10 loops=1)
+        Workers Planned: 1
+        Workers Launched: 1
+        ->  Sort  (cost=4800.78..5094.90 rows=117647 width=9) (actual time=17.627..17.628 rows=5 loops=2)
+              Sort Key: name, id
+              Sort Method: top-N heapsort  Memory: 25kB
+              Worker 0:  Sort Method: quicksort  Memory: 25kB
+              ->  Parallel Seq Scan on t_test  (cost=0.00..2258.47 rows=117647 width=9) (actual time=0.003..3.683 rows=100000 loops=2)
+Planning Time: 0.042 ms
+Execution Time: 91.998 ms
+
+--------------------------------------------------
+
 Limit (cost=7403.93..7403.95 rows=10 width=9)
 (actual time=31.837..31.838 rows=10 loops=1)
 -> Sort (cost=7403.93..7903.93 rows=200000 width=9)
@@ -1654,6 +1822,17 @@ PostgreSQL 13에서 새로운 알고리즘이 추가되었습니다:
 test=# CREATE INDEX idx_id ON t_test (id);
 CREATE INDEX
 test=# explain analyze SELECT * FROM t_test ORDER BY id, name;
+
+Incremental Sort  (cost=0.45..13688.62 rows=200000 width=9) (actual time=0.046..36.195 rows=200000 loops=1)
+  Sort Key: id, name
+  Presorted Key: id
+  Full-sort Groups: 6250  Sort Method: quicksort  Average Memory: 26kB  Peak Memory: 26kB
+  ->  Index Scan using idx_id on t_test  (cost=0.42..4688.62 rows=200000 width=9) (actual time=0.035..21.591 rows=200000 loops=1)
+Planning Time: 0.603 ms
+Execution Time: 39.551 ms
+
+--------------------------------------------------
+
 QUERY PLAN
 Incremental Sort (cost=0.46..15289.42 rows=200000 width=9) (actual time=0.047..71.622 rows=200000 loops=1)
 Sort Key: id, name
@@ -1671,7 +1850,7 @@ Execution Time: 83.681 ms
 
 work_mem 변수는 작업별로 할당됩니다. 이론적으로 쿼리에는 work_mem 변수가 두 번 이상 필요할 수 있습니다. 전역 설정이 아닙니다. 실제로는 작업별로 설정됩니다. 따라서 신중하게 설정해야 합니다.
 
-한 가지 명심해야 할 것은 OLTP 시스템에서 work_mem 변수를 너무 높게 설정하면 서버의 메모리가 부족해질 수 있다고 주장하는 책이 많다는 것입니다. 예; 1,000명이 동시에 100MB를 정렬하면 메모리 오류가 발생할 수 있습니다. 그러나 디스크가 이를 처리할 수 있을 것으로 기대합니까? 나는 그것을 의심한다. 해결책은 하고 있는 일을 재고하는 것뿐입니다. 100MB를 동시에 1,000번 정렬하는 것은 어쨌든 OLTP 시스템에서 일어나야 하는 일이 아닙니다. 적절한 인덱스를 배포하거나 더 나은 쿼리를 작성하거나 단순히 요구 사항을 재고하는 것을 고려하십시오. 어떤 상황에서든 너무 많은 데이터를 동시에 너무 자주 정렬하는 것은 나쁜 생각입니다. 그런 일이 애플리케이션을 중지하기 전에 중지하십시오.
+한 가지 명심해야 할 것은 OLTP 시스템에서 work_mem 변수를 너무 높게 설정하면 서버의 메모리가 부족해질 수 있다고 주장하는 책이 많다는 것입니다. 그렇습니다; 1,000명이 동시에 100MB를 정렬하면 메모리 오류가 발생할 수 있습니다. 그러나 디스크가 이를 처리할 수 있을 것으로 기대합니까? 나는 그것을 의심한다. 해결책은 하고 있는 일을 재고하는 것뿐입니다. 100MB를 동시에 1,000번 정렬하는 것은 어쨌든 OLTP 시스템에서 일어나야 하는 일이 아닙니다. 적절한 인덱스를 배포하거나 더 나은 쿼리를 작성하거나 단순히 요구 사항을 재고하는 것을 고려하십시오. 어떤 상황에서든 너무 많은 데이터를 동시에 너무 자주 정렬하는 것은 나쁜 생각입니다. 그런 일이 애플리케이션을 중지하기 전에 중지하십시오.
 
 ### 관리 작업 속도 향상
 
@@ -1682,7 +1861,8 @@ test # DROP INDEX idx_id;
 DROP INDEX
 test # SET maintenance_work_mem TO '1 MB';
 SET
-test-# \timing Tim isg Timing is on.
+test-# \timing
+Tim isg Timing is on.
 test=# CREATE INDEX idx_id ON t_test (id);
 CREATE INDEX
 Time: 104.268 ms
@@ -1693,15 +1873,14 @@ Time: 104.268 ms
 ```
 test # SET maintenance_work_mem TO '1 GB';
 SET
-test # CREATE INDEX idx_id ON t test (id);
+test # CREATE INDEX idx_id ON t_test (id);
 CREATE INDEX
 Time: 46.774 ms
 ```
 
 분류 기능이 많이 향상되었기 때문에 속도가 두 배로 향상되었습니다.
 
-더 많은 메모리를 활용할 수 있는 더 많은 관리 작업이 있습니다. 가장 눈에 띄는 것은 VACUUM 절(인덱스 정리용)과 ALTER TABLE 절입니다. Maintenance_work_mem 변수에 대한 규칙은 다음과 같습니다.
-work_mem 변수. 설정은 작업별로 이루어지며 필요한 메모리만 즉시 할당됩니다.
+더 많은 메모리를 활용할 수 있는 더 많은 관리 작업이 있습니다. 가장 눈에 띄는 것은 VACUUM 절(인덱스 정리용)과 ALTER TABLE 절입니다. maintenance_work_mem 변수에 대한 규칙은 work_mem 변수에 대한 규칙과 동일합니다. 설정은 작업별로 이루어지며 필요한 메모리만 즉시 할당됩니다.
 
 PostgreSQL 11에서는 데이터베이스 엔진에 추가 기능이 추가되었습니다. PostgreSQL은 이제 btree 인덱스를 병렬로 구축할 수 있어 큰 테이블의 인덱싱 속도를 크게 높일 수 있습니다. 병렬화를 담당하는 파라미터는 다음과 같다.
 
@@ -1724,7 +1903,7 @@ max_parallel_maintenance_workers는 CREATE INDEX에서 사용할 수 있는 작�
 
 ```
 test=# CREATE TABLE t_parallel AS
-SELECT * FROM generate_series (1, 25000000) AS id;
+	SELECT * FROM generate_series (1, 25000000) AS id;
 SELECT 25000000
 ```
 
@@ -1732,6 +1911,15 @@ SELECT 25000000
 
 ```
 test=# explain SELECT count(*) FROM t_parallel;
+
+Finalize Aggregate  (cost=319032.61..319032.62 rows=1 width=8)
+  ->  Gather  (cost=319032.50..319032.61 rows=1 width=8)
+        Workers Planned: 1
+        ->  Partial Aggregate  (cost=318032.50..318032.51 rows=1 width=8)
+              ->  Parallel Seq Scan on t_parallel  (cost=0.00..276550.00 rows=16593000 width=0)
+
+--------------------------------------------------
+
 QUERY PLAN
 Finalize Aggregate (cost=241829.17..241829.18 rows=1 width=8)
 -> Gather (cost=241828.96..241829.17 rows=2 width=8)
@@ -1752,10 +1940,13 @@ max_parallel_workers_per_gather
 (1 row)
 ```
 
+> 참고 : 현재 play_test는 max_parallel_workers_per_gather = 1로 설정되어 
+
 max_parallel_workers_per_gather는 수집 노드 아래에서 허용되는 작업자 프로세스 수를 2로 제한합니다. 중요한 것은 테이블이 작으면 병렬 처리를 사용하지 않는다는 것입니다. 테이블의 크기는 다음 구성 설정에 정의된 대로 8MB 이상이어야 합니다.
 
 ```
-test=# SHOW min_parallel_table_scan_size; min_parallel_table_scan_size
+test=# SHOW min_parallel_table_scan_size; 
+min_parallel_table_scan_size
 8MB
 (1 row)
 ```
@@ -1780,6 +1971,15 @@ public | t_parallel | table | hs
 test=# SET max_parallel_workers_per_gather To 10;
 SET
 test=# explain SELECT count(*) FROM t_parallel;
+
+Finalize Aggregate  (cost=182140.77..182140.78 rows=1 width=8)
+  ->  Gather  (cost=182140.25..182140.76 rows=5 width=8)
+        Workers Planned: 5
+        ->  Partial Aggregate  (cost=181140.25..181140.26 rows=1 width=8)
+              ->  Parallel Seq Scan on t_parallel  (cost=0.00..167036.20 rows=5641620 width=0)
+
+--------------------------------------------------
+
 QUERY PLAN
 Finalize Aggregate (cost=174120.82..174120.83 rows=1 width=8)
 -> Gather (cost=174120.30..174120.81 rows=5 width=8)
@@ -1811,6 +2011,15 @@ max_parallel_workers_per_gather는 여전히 유효하며 상한선 역할을 �
 
 ```
 test # explain SELECT count (*) FROM t_parallel;
+
+Finalize Aggregate  (cost=150798.85..150798.86 rows=1 width=8)
+  ->  Gather  (cost=150797.92..150798.83 rows=9 width=8)
+        Workers Planned: 9
+        ->  Partial Aggregate  (cost=149797.92..149797.93 rows=1 width=8)
+              ->  Parallel Seq Scan on t_parallel  (cost=0.00..141962.33 rows=3134233 width=0)
+	      
+--------------------------------------------------
+	      
 Finalize Aggregate (cost=146343.32..146343.33 rows=1 width=8)
 -> Gather (cost=146342.39..146343.30 rows=9 width=8)
 Workers Planned: 9
@@ -1830,6 +2039,18 @@ Time: 2.454 ms
 
 ```
 test # explain analyze SELECT count (*) FROM t_parallel;
+
+Finalize Aggregate  (cost=150798.85..150798.86 rows=1 width=8) (actual time=1362.556..1394.325 rows=1 loops=1)
+  ->  Gather  (cost=150797.92..150798.83 rows=9 width=8) (actual time=1362.435..1394.320 rows=2 loops=1)
+        Workers Planned: 9
+        Workers Launched: 1
+        ->  Partial Aggregate  (cost=149797.92..149797.93 rows=1 width=8) (actual time=1351.313..1351.314 rows=1 loops=2)
+              ->  Parallel Seq Scan on t_parallel  (cost=0.00..141962.33 rows=3134233 width=0) (actual time=0.147..1002.140 rows=12500000 loops=2)
+Planning Time: 0.031 ms
+Execution Time: 1394.344 ms
+
+--------------------------------------------------
+
 QUERY PLAN
 Finalize Aggregate (cost=146343.32..146343.33 rows=1 width=8)
 (actual time=1375.606..1375.606 rows=1 loops=1)
@@ -1864,11 +2085,14 @@ max_worker_processes
 test # SHOW max_parallel_workers;
 max_parallel workers
 (1 row)
+8
 ```
+
+> 참고 : play_test에서 max_worker_processes = 2, max_parallel_workers = 2로 설정되어 있음
 
 첫 번째 프로세스는 PostgreSQL에 일반적으로 사용 가능한 작업자 프로세스 수를 알려줍니다. max_parallel 작업자는 병렬 쿼리에 사용할 수 있는 작업자 수를 나타냅니다. 두 개의 매개변수가 있는 이유는 무엇입니까? 백그라운드 프로세스는 병렬 쿼리 인프라에서만 사용되는 것이 아니라 다른 용도로도 사용할 수 있으므로 대부분의 개발자는 두 개의 매개변수를 사용하기로 결정합니다.
 
-일반적으로 우리 Cybertec(https://www.cybertec-postgresql.com)은 60620,24 max_worker_processes를 서버의 CPU 수로 설정하는 경향이 있습니다. 더 많이 사용하는 것은 일반적으로 유익하지 않은 것 같습니다.
+일반적으로 Cybertec(https://www.cybertec-postgresql.com)에서는 max_worker_processes를 서버의 CPU 수로 설정하는 경향이 있습니다. 더 많이 사용하는 것은 일반적으로 유익하지 않은 것 같습니다.
 
 ### PostgreSQL은 병렬로 무엇을 할 수 있습니까?
 
@@ -1906,7 +2130,8 @@ max_parallel_maintenance_workers
 ```
 test=# explain SELECT * FROM t_parallel;
 QUERY PLAN
-Seq Scan on t_parallel (cost=0.00..360621.20 rows=25000120 width=4) (1 row)
+Seq Scan on t_parallel (cost=0.00..360621.20 rows=25000120 width=4) 
+(1 row)
 ```
 
 PostgreSQL이 병렬 쿼리를 사용하지 않는 이유는 무엇입니까? 테이블이 충분히 크고 PostgreSQL 작업자를 사용할 수 있는데 병렬 쿼리를 사용하지 않는 이유는 무엇입니까? 대답은 프로세스 간 통신이 실제로 비용이 많이 든다는 것입니다. PostgreSQL이 프로세스 간에 행을 전달해야 하는 경우 쿼리는 실제로 단일 프로세스 모드보다 느릴 수 있습니다. 옵티마이저는 비용 매개변수를 사용하여 프로세스 간 통신을 처벌합니다.
@@ -1953,24 +2178,15 @@ LLVM_CONFIG path to 1lvm-config command
 JIT를 사용할 수 있는지 확인한 후에는 쿼리에 대한 JIT 컴파일을 미세 조정할 수 있도록 다음 구성 매개변수를 사용할 수 있습니다.
 
 ```
-#allow JIT compilation
-#JIT implementation to use.
-#perform JIT compilation if
-# and query more expensive, -1
-disables
-#jit_optimize_above_cost = 500000
-is
-#optimize JITed functions if query
-#jit_inline_above_cost = 500000
-#more expensive, -1 disables
-#attempt to inline operators and
-#functions if query is more
-expensive,
-# -1 disables
-#jit = on
-#jit provider = '1lvmjit'
-#jit_above_cost = 100000
-available
+#jit = on 				# allow JIT compilation 
+#jit provider = 'llvmjit' 		# JIT implementation to use 
+#jit_above_cost = 100000 		# perform JIT compilation if available 
+					# and query more expensive, -1 disables 
+#jit_optimize_above_cost = 500000 	# optimize JITed functions if query is 
+					# more expensive, -1 disables 
+#jit_inline_above_cost = 500000 	# attempt to inline operators and 
+					# functions if query is more expensive, 
+					# -1 disables 
 ```
 
 jit_above_cost는 예상 비용이 최소 100,000단위인 경우에만 JIT가 고려됨을 의미합니다. 왜 관련이 있습니까? 쿼리가 충분히 길지 않으면 컴파일 오버헤드가 잠재적 이득보다 훨씬 높을 수 있습니다. 따라서 최적화만 시도됩니다. 그러나 두 가지 매개변수가 더 있습니다. 쿼리가 500,000개 단위보다 더 비싼 것으로 간주되는 경우 매우 심층적인 최적화가 시도됩니다. 이 경우 함수 호출이 인라인됩니다.
@@ -1982,8 +2198,8 @@ jit_above_cost는 예상 비용이 최소 100,000단위인 경우에만 JIT가 �
 JIT가 어떻게 작동하는지 보여주기 위해 간단한 예제를 컴파일합니다. 많은 데이터를 포함하는 큰 테이블을 만드는 것부터 시작하겠습니다. JIT 컴파일은 작업이 충분히 큰 경우에만 유용하다는 것을 기억하십시오. 초보자의 경우 5천만 행이면 충분합니다. 다음 예에서는 테이블을 채우는 방법을 보여줍니다.
 
 ```
-jit=# CREATE TABLE t_jit AS SELECT (random() *10000) :: int AS X, (random() *100000)::int AS Y
-(random() *1000000) :: int AS z FROM generate_series (1, 50000000) AS id;
+jit=# CREATE TABLE t_jit AS 
+	SELECT (random() *10000) :: int AS X, (random() *100000)::int AS Y, (random() *1000000) :: int AS z FROM generate_series (1, 50000000) AS id;
 SELECT 50000000
 jit=# VACUUM ANALYZE t_jit;
 VACUUM
@@ -1992,7 +2208,7 @@ VACUUM
 이 경우 random 함수를 사용하여 일부 데이터를 생성합니다. JIT의 작동 방식을 보여주고 실행 계획을 읽기 쉽게 만들기 위해 병렬 쿼리를 끌 수 있습니다. JIT는 병렬 쿼리에서 잘 작동하지만 실행 계획은 훨씬 더 긴 경향이 있습니다.
 
 ```
-jit=# max_parallel_workers_per_gather to 0;
+jit=# SET max_parallel_workers_per_gather to 0;
 SET
 jit=# SET jit to off;
 SET
@@ -2000,6 +2216,17 @@ jit=# explain (analyze, verbose) SELECT avg(z+y-pi()), avg(y-pi()),
 max (x/pi())
 FROM t_jit
 WHERE ((y+z))> ((y-x) *0.000001);
+
+Aggregate  (cost=1936942.21..1936942.22 rows=1 width=24) (actual time=20946.984..20946.984 rows=1 loops=1)
+  Output: avg((((z + y))::double precision - '3.141592653589793'::double precision)), avg(((y)::double precision - '3.141592653589793'::double precision)), max(((x)::double precision / '3.141592653589793'::double precision))
+  ->  Seq Scan on public.t_jit  (cost=0.00..1520274.40 rows=16666712 width=12) (actual time=0.030..14412.832 rows=50000000 loops=1)
+        Output: x, y, z
+        Filter: (((t_jit.y + t_jit.z))::numeric > (((t_jit.y - t_jit.x))::numeric * 0.000001))
+Planning Time: 0.789 ms
+Execution Time: 20947.012 ms
+
+--------------------------------------------------
+
 QUERY PLAN
 Aggregate (cost=1936901.68..1936901.69 rows=1 width=24) (actual time=20617.425..20617.425 rows=1 loops=1)
 Output: avg((((z + y)) :: double precision - "3.14159265358979': :double
@@ -2032,6 +2259,17 @@ jit # explain (analyze, verbose) SELECT avg (z+y-pi()), avg (y-pi()),
 max (x/pi())
 FROM t_jit
 WHERE ((y+z))> ((y-x) *0.000001);
+
+Aggregate  (cost=1936942.21..1936942.22 rows=1 width=24) (actual time=21053.255..21053.256 rows=1 loops=1)
+  Output: avg((((z + y))::double precision - '3.141592653589793'::double precision)), avg(((y)::double precision - '3.141592653589793'::double precision)), max(((x)::double precision / '3.141592653589793'::double precision))
+  ->  Seq Scan on public.t_jit  (cost=0.00..1520274.40 rows=16666712 width=12) (actual time=0.055..14442.779 rows=50000000 loops=1)
+        Output: x, y, z
+        Filter: (((t_jit.y + t_jit.z))::numeric > (((t_jit.y - t_jit.x))::numeric * 0.000001))
+Planning Time: 0.063 ms
+Execution Time: 21053.287 ms
+
+--------------------------------------------------
+
 QUERY PLAN
 Aggregate (cost=1936901.68..1936901.69 rows=1 width=24)
 (actual time=15585.788..15585.789 rows=1 loops=1)
