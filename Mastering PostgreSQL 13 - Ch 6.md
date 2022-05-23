@@ -919,16 +919,16 @@ join_collapse_limit 변수는 개발자에게 실제로 이러한 문제를 해�
 이 설정이 무엇인지 보여주기 위해 다음과 같은 작은 예를 컴파일합니다.
 
 ```
-SELECT * FROM tabi, tab2, tab3
-WHERE tabi.id = tab2.id
+SELECT * FROM tab1, tab2, tab3
+WHERE tab1.id = tab2.id
 	AND tab2.ref = tab3.id;
 	
 SELECT * FROM tab1 CROSS JOIN tab2
 CROSS JOIN tab3
-WHERE tabi.id = tab2.id
+WHERE tab1.id = tab2.id
 	AND tab2.ref = tab3.id;
 
-SELECT * FROM tabi JOIN (tab2 JOIN tab3
+SELECT * FROM tab1 JOIN (tab2 JOIN tab3
 	ON (tab2.ref = tab3.id))
 	ON (tab1.id = tab2.id);
 ```
