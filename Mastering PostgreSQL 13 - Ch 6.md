@@ -122,7 +122,7 @@ Merge join
 
 #### 변환 적용
 
-분명한 일을 하는 것(일단 견해에 합류하는 것)은 전혀 말이 되지 않는다. 중첩된 루프는 실행 시간을 지붕을 통해 전송합니다. 해시 조인(hash join)은 수백만 개의 행을 해시해야 하며, 중첩된 루프는 3억 개의 행을 정렬해야 합니다. 세 가지 옵션 모두 여기서 분명히 적합하지 않다. 출구는 논리적 변환을 적용하여 쿼리를 빠르게 만드는 것이다. 이 섹션에서는 플래너가 쿼리 속도를 높이기 위해 수행하는 작업에 대해 알아봅니다. 몇 가지 단계를 수행해야 합니다.
+분명히, 명백한 일을 하는 것(뷰에 먼저 합류하는 것)은 전혀 의미가 없습니다. 중첩 루프는 루프를 통해 실행 시간을 보냅니다. 해시 조인은 수백만 행을 해시해야 하고 중첩 루프는 3억 행을 정렬해야 합니다. 세 가지 옵션 모두 여기에는 분명히 적합하지 않습니다. 탈출구는 논리적 변환을 적용하여 쿼리를 빠르게 만드는 것입니다. 이 섹션에서는 플래너가 쿼리 속도를 높이기 위해 수행하는 작업을 배웁니다. 몇 가지 단계를 수행해야 합니다.
 
 1. 뷰의 선긋기: 최적기가 수행하는 첫 번째 변환은 뷰의 인라인입니다. 다음과 같은 일이 발생합니다:
 
@@ -163,7 +163,7 @@ WHERE a.aid = c.cid
 	AND aid = bid
 	AND cid = 4
 	AND bid = cid
-	AND aid - 4
+	AND aid = 4
 	AND bid = 4
 ```
 
@@ -222,18 +222,15 @@ ANALYZE
 
 ```
 test=# explain SELECT * FROM V, C WHERE v.aid = c.cid AND cid = 4;
-QUERY PLAN
-Nested Loop (cost=1.27..13.35 rows=1 width=12)
--> Nested Loop (cost=0.85..8.89 rows=1 width=8)
--> Index Only Scan using idx_a on a (cost=0.42.. 4.44 rows=1
-width=4)
-Index Cond: (aid = 4)
--> Index Only Scan using idx_b on b (cost=0.42.. 4.44 rows=1
-width=4)
-Index Cond: (bid = 4)
--> Index Only Scan using idx_c on c (cost=0.42..4.44 rows=1 width=4)
-Index Cond: (cid = 4)
-(8 rows)
+
+Nested Loop  (cost=1.71..8.38 rows=1 width=47)
+  ->  Nested Loop  (cost=1.14..5.58 rows=1 width=29)
+        ->  Index Scan using idx_a on a  (cost=0.57..2.79 rows=1 width=12)
+              Index Cond: (aid = 4)
+        ->  Index Scan using idx_b on b  (cost=0.57..2.79 rows=1 width=17)
+              Index Cond: (bid = 4)
+  ->  Index Scan using idx_c on c  (cost=0.57..2.79 rows=1 width=18)
+        Index Cond: (cid = 4)
 ```
 
 이 장에 표시된 계획은 관찰할 내용과 반드시 100% 동일하지는 않습니다. 로드한 데이터의 양에 따라 약간의 차이가 있을 수 있습니다. 비용은 디스크에 있는 데이터의 물리적 정렬(디스크에 있는 순서)에 따라 달라질 수도 있습니다. 이 예제를 실행할 때 이 점을 염두에 두십시오.
@@ -259,7 +256,7 @@ test=# CREATE VIEW V AS SELECT *
 CREATE VIEW
 ```
 
-이 보기는 이전에 표시된 예와 논리적으로 동일하지만 옵티마이저는 상황을 다르게 처리해야 합니다. o 이외의 모든 오프셋은 결과를 변경하므로 보기를 계산해야 합니다. 전체 최적화 프로세스는 OFFSET과 같은 항목을 추가하여 손상됩니다.
+이 보기는 이전에 표시된 예와 논리적으로 동일하지만 옵티마이저는 상황을 다르게 처리해야 합니다. 0이 아닌 모든 오프셋은 결과를 변경하므로 보기를 계산해야 합니다. 전체 최적화 프로세스는 OFFSET과 같은 항목을 추가하여 손상됩니다.
 
 > PostgreSQL 커뮤니티는 이 패턴을 최적화하지 않기로 결정했습니다. 보기에서 OFFSET 0을 사용한 경우 플래너는 이를 제거하지 않습니다. 사람들은 그렇게 해서는 안 됩니다. 특정 작업이 성능을 저하시킬 수 있는 방법과 개발자로서 기본 최적화 프로세스를 알고 있어야 하는 방법을 관찰하기 위해 이것을 예로 사용할 것입니다. 그러나 PostgreSQL의 작동 방식을 알고 있다면 이 트릭을 최적화에 사용할 수 있습니다.
 
@@ -267,19 +264,16 @@ CREATE VIEW
 
 ```
 test # EXPLAIN SELECT * FROM v, c WHERE v.aid = c.cid AND cid = 4;
-QUERY PLAN
-Nested Loop (cost=1.62..79463.79 rows=1 width=12)
--> Subquery Scan on v (cost=1.19..79459.34 rows=1 width=8)
-Filter: (v.aid = 4)
--> Merge Join (cost=1.19..66959.34 rows=1000000 width=8) 31
-Merge Cond: (a.aid = b.bid)
--> Index Only Scan using idx_a on a (cost=0.42..25980.42
-width=4)
--> Index Only Scan using idx_b on b (cost=0.42..25980.42
-rows=1000000 width=4)
--> Index Only Scan using idx_c on c (cost=0.42..4.44 rows=1 width=4)
-Index Cond: (cid = 4)
-(9 rows)
+
+Nested Loop  (cost=768.13..7427921.25 rows=1 width=47)
+  ->  Subquery Scan on v  (cost=767.56..7427918.45 rows=1 width=29)
+        Filter: (v.aid = 4)
+        ->  Merge Join  (cost=767.56..6177918.45 rows=100000000 width=29)
+              Merge Cond: (a.aid = b.bid)
+              ->  Index Scan using idx_a on a  (cost=0.57..2342154.07 rows=100000000 width=12)
+              ->  Index Scan using idx_b on b  (cost=0.57..4780704.97 rows=200000000 width=17)
+  ->  Index Scan using idx_c on c  (cost=0.57..2.79 rows=1 width=18)
+        Index Cond: (cid = 4)
 ```
 
 계획자가 예측한 비용을 살펴보십시오. 비용이 두 자리 숫자에서 엄청난 숫자로 치솟았습니다. 분명히 이 쿼리는 나쁜 성능을 제공할 것입니다.
@@ -288,14 +282,13 @@ Index Cond: (cid = 4)
 
 #### 상수 접기 (Constant folding)
 
-그러나 백그라운드에서 발생하고 전반적인 우수한 성능에 기여하는 PostgreSQL에는 더 많은 최적화가 있습니다. 이러한 기능 중 하나를 상수 접기라고 합니다. 아이디어는 다음 예제와 같이 표현식을 상수로 바꾸는 것입니다.
+그러나 PostgreSQL에는 백그라운드에서 발생하고 전반적인 우수한 성능에 기여하는 더 많은 최적화가 있습니다. 이러한 기능 중 하나를 상수 접기라고 합니다. 아이디어는 다음 예제와 같이 표현식을 상수로 바꾸는 것입니다.
 
 ```
 test # explain SELECT * FROM a WHERE aid = 3 + 1;
-QUERY PLAN
-Index Only Scan using idx_a on a (cost=0.42..4.44 rows=1 width=4)
-Index Cond: (aid = 4)
-(2 rows)
+
+Index Scan using idx_a on a  (cost=0.57..2.79 rows=1 width=12)
+  Index Cond: (aid = 4)
 ```
 
 보시다시피 PostgreSQL은 4를 찾으려고 시도합니다. 도움이 인덱싱되었으므로 PostgreSQL은 인덱스 스캔을 수행합니다. 우리 테이블에는 단 하나의 열만 있으므로 PostgreSQL은 필요한 모든 데이터를 인덱스에서 찾을 수 있다는 것을 알아냈습니다.
@@ -304,19 +297,11 @@ Index Cond: (aid = 4)
 
 ```
 test=# explain SELECT * FROM a WHERE aid - 1 = 3;
-QUERY PLAN
-Gather (cost=1000.00.. 12175.00 rows=5000 width=4)
-Workers Planned: 2
--> Parallel Seq Scan on a (cost=0.00.. 10675.00 rows=2083 width=4)
-Filter: ((aid - 1) = 3)
-(4 rows)
-test=# SET max_parallel_workers_per_gather To 0;
-SET
-test=# explain SELECT * FROM a WHERE aid - 1 = 3;
-QUERY PLAN
-Seq Scan on a (cost=0.00..19425.00 rows=5000 width=4)
-Filter: ((aid - 1) = 3)
-(2 rows)
+
+Gather  (cost=1000.00..1473892.94 rows=500000 width=12)
+  Workers Planned: 1
+  ->  Parallel Seq Scan on a  (cost=0.00..1422892.94 rows=294118 width=12)
+        Filter: ((aid - 1) = 3)
 ```
 
 이 경우 인덱스 조회 코드가 실패하고 PostgreSQL은 순차 스캔을 수행해야 합니다. 여기에는 병렬 계획과 단일 코어 계획이라는 두 가지 예가 포함되어 있습니다.
@@ -342,7 +327,7 @@ CREATE FUNCTION
 이것은 IMMUTABLE로 표시된 일반 SQL 함수입니다. 이것은 옵티마이저를 위한 완벽한 최적화 사료입니다. 간단하게 하기 위해 내 함수가 하는 일은 로그를 계산하는 것뿐입니다.
 
 ```
-test=# SELECT id (1024)
+test=# SELECT ld (1024)
 ld
 10.0000000000000000
 (1 row)
@@ -362,14 +347,26 @@ TRUNCATE TABLE
 ```
 test=# INSERT INTO a SELECT * FROM generate_series (1, 10000);
 INSERT 0 10000
-test=# CREATE INDEX idx_id ON a (1d (aid));
+test=# CREATE INDEX idx_ld ON a (ld (aid));
 CREATE INDEX
 ```
 
 예상대로 함수에 생성된 인덱스는 다른 인덱스처럼 사용됩니다. 그러나 인덱싱 조건을 자세히 살펴보겠습니다:
 
 ```
-test=# EXPLAIN SELECT * FROM a WHERE id (aid) = 10;
+test=# EXPLAIN SELECT * FROM a WHERE ld(aid) = 10;
+
+Index Scan using idx_ld on a  (cost=0.29..2.50 rows=1 width=36)
+  Index Cond: (log('2'::numeric, (aid)::numeric) = '10'::numeric)
+  
+test=# ANALYZE ;
+
+Index Scan using idx_ld on a  (cost=0.29..2.50 rows=1 width=36)
+  Index Cond: (log('2'::numeric, (aid)::numeric) = '10'::numeric)
+  
+--------------------------------------------------
+
+test=# EXPLAIN SELECT * FROM a WHERE ld(aid) = 10;
 QUERY PLAN
 Bitmap Heap Scan on a (cost=4.67..52.77 rows=50 width=4)
 Recheck Cond: (log('2':: numeric, (aid) :: numeric) = '10'::numeric)
@@ -391,10 +388,9 @@ Index Cond: (log('2':: numeric, (aid) :: numeric) = '10'::numeric)
 
 ```
 test=# EXPLAIN SELECT * FROM a WHERE log (2, aid) = 10;
-QUERY PLAN
-Index Scan using idx_ld on a (cost=0.29..8.30 rows=1 width=4)
-Index Cond: (log('2':: numeric, (aid) :: numeric) = '10':: numeric) rombof
-(2 rows)
+
+Index Scan using idx_ld on a  (cost=0.29..2.50 rows=1 width=36)
+  Index Cond: (log('2'::numeric, (aid)::numeric) = '10'::numeric)
 ```
 
 옵티마이저는 함수를 인라인할 수 있었고 값비싼 순차 작업보다 훨씬 우수한 인덱스 스캔을 제공했습니다.
@@ -418,16 +414,13 @@ CREATE TABLE y (id int, PRIMARY KEY (id));
 test # EXPLAIN SELECT *
 FROM x LEFT JOIN y ON (x.id = y.id)
 WHERE x.id = 3;
-QUERY PLAN
-Nested Loop Left Join (cost=0.31..16.36 rows=1 width=8)
-Join Filter: (x.id = y.id)
--> Index Only Scan using x_pkey on x
-(cost=0.15..8.17 rows=1 width=4)
-Index Cond: (id = 3)
-Index Only Scan using y_pkey on y
-(cost=0.15..8.17 rows=1 width=4)
-Index Cond: (id = 3)
-(6 rows)
+
+Nested Loop Left Join  (cost=0.31..4.76 rows=1 width=8)
+  Join Filter: (x.id = y.id)
+  ->  Index Only Scan using x_pkey on x  (cost=0.15..2.37 rows=1 width=4)
+        Index Cond: (id = 3)
+  ->  Index Only Scan using y_pkey on y  (cost=0.15..2.37 rows=1 width=4)
+        Index Cond: (id = 3)
 ```
 
 보시다시피 PostgreSQL은 해당 테이블을 직접 조인합니다. 지금까지는 놀라움이 없습니다. 그러나 다음 쿼리가 약간 수정되었습니다. 모든 열을 선택하는 대신 조인의 왼쪽에 있는 열만 선택합니다:
@@ -436,10 +429,9 @@ Index Cond: (id = 3)
 test # EXPLAIN SELECT x.*
 FROM x LEFT JOIN Y ON (x.id = y.id)
 WHERE x.id = 3;
-QUERY PLAN
-Index Only Scan using x_pkey on x (cost=0.15..8.17 rows=1 width=4)
-Index Cond: (id = 3)
-(2 rows)
+
+Index Only Scan using x_pkey on x  (cost=0.15..2.37 rows=1 width=4)
+  Index Cond: (id = 3)
 ```
 
 PostgreSQL은 직접 내부 스캔을 수행하고 조인을 완전히 건너뜁니다. 이것이 실제로 가능하고 논리적으로 올바른 두 가지 이유가 있습니다.
@@ -457,52 +449,47 @@ PostgreSQL은 직접 내부 스캔을 수행하고 조인을 완전히 건너뜁
 
 ```
 test=# EXPLAIN SELECT *
-FROM
-(
-SELECT aid AS xid
-FROM a
-UNION ALL
-SELECT bid FROM
-) AS Y
-WHERE id = 3;
-QUERY PLAN
-Append (cost=0.29..8.76 rows=2 width=4)
--> Index Only Scan using idx_a on a (cost=0.29..4.30 rows=1 width=4)
-Index Cond: (aid = 3)
--> Index Only Scan using idx_b on b (cost=0.42..4.44 rows=1 width=4)
-Index Cond: (bid = 3)
-(5 rows)
+	FROM
+	(
+		SELECT aid AS xid
+		FROM a
+		UNION ALL
+		SELECT bid FROM b
+	) AS Y
+	WHERE xid = 3;
+
+Append  (cost=0.29..4.20 rows=2 width=4)
+  ->  Index Only Scan using idx_a on a  (cost=0.29..1.40 rows=1 width=4)
+        Index Cond: (aid = 3)
+  ->  Index Only Scan using idx_b on b  (cost=0.57..2.79 rows=1 width=4)
+        Index Cond: (bid = 3)
 ```
 
 여기서 볼 수 있는 것은 두 개의 관계가 서로 추가되었다는 것입니다. 문제는 유일한 제한이 subselect 밖에 있다는 것입니다. 그러나 PostgreSQL은 필터가 계획 아래로 더 밀릴 수 있음을 파악합니다. 따라서 xid = 3이 보조 및 입찰에 첨부되어 두 테이블 모두에서 인덱스를 사용할 수 있는 옵션이 열립니다. 두 테이블에 대한 순차 스캔을 피함으로써 쿼리가 훨씬 더 빠르게 실행됩니다.
 
 > UNION 절과 UNION ALL 절 사이에는 차이점이 있습니다. UNION ALL 절은 맹목적으로 데이터를 추가하고 두 테이블의 결과를 전달합니다.
-> 
+ 
 UNION 절은 중복을 필터링하므로 다릅니다. 다음 계획은 작동 방식을 보여줍니다:
 
 ```
 test=# EXPLAIN SELECT *
-FROM
-(
-SELECT aid AS xid
-FROM a
-UNION SELECT bid
-FROM b
-) AS Y
-WHERE xid = 3;
-QUERY PLAN
-Chapter 6
-Unique (cost=8.79..8.80 rows=2 width=4)
--> Sort (cost=8.79..8.79 rows=2 width=4)
-Sort Key: a.aid
--> Append (cost=0.29..8.78 rows=2 width=4)
--> Index Only Scan using idx_a on a (cost=0.29.. 4.30 rows=1
-width=4)
-Index Cond: (aid = 3)
--> Index Only Scan using idx_b on b (cost=0.42..4.44 rows=1
-width=4)
-Index Cond: (bid = 3)
-(8 rows)
+	FROM
+	(
+		SELECT aid AS xid
+		FROM a
+		UNION SELECT bid
+		FROM b
+	) AS Y
+	WHERE xid = 3;
+	
+Unique  (cost=4.23..4.24 rows=2 width=4)
+  ->  Sort  (cost=4.23..4.23 rows=2 width=4)
+        Sort Key: a.aid
+        ->  Append  (cost=0.29..4.22 rows=2 width=4)
+              ->  Index Only Scan using idx_a on a  (cost=0.29..1.40 rows=1 width=4)
+                    Index Cond: (aid = 3)
+              ->  Index Only Scan using idx_b on b  (cost=0.57..2.79 rows=1 width=4)
+                    Index Cond: (bid = 3)
 ```
 
 실행 계획은 이미 매우 매력적으로 보입니다. 두 개의 인덱스 스캔을 볼 수 있습니다. PostgreSQL은 나중에 중복을 필터링할 수 있도록 Append 노드 위에 Sort 노드를 추가해야 합니다.
@@ -519,16 +506,29 @@ PostgreSQL에 구현된 몇 가지 중요한 최적화를 살펴보았으므로 
 
 가장 먼저 알아야 할 것은 EXPLAIN 절이 당신을 위해 많은 일을 할 수 있다는 것입니다. 이러한 기능을 최대한 활용하는 것이 좋습니다.
 
-많은 분들이 이미 알고 계시겠지만 EXPLAIN ANALYZE 절은 ​​쿼리를 실행하고 실제 런타임 정보를 포함한 계획을 반환합니다. 다음은 예입니다.
+많은 분들이 이미 알고 계시겠지만 EXPLAIN ANALYZE 절은 쿼리를 실행하고 실제 런타임 정보를 포함한 계획을 반환합니다. 다음은 예입니다.
 
 ```
 test=# EXPLAIN ANALYZE SELECT *
-FROM
-SELECT *
-FROM b
-LIMIT 1000000
-) AS b
-ORDER BY cos (bid);
+	FROM 
+	(
+		SELECT *
+		FROM b
+		LIMIT 1000000
+	) AS b
+	ORDER BY cos(bid);
+	
+Sort  (cost=130547.94..133047.94 rows=1000000 width=25) (actual time=1300.535..1402.580 rows=1000000 loops=1)
+  Sort Key: (cos((b.bid)::double precision))
+  Sort Method: quicksort  Memory: 102670kB
+  ->  Subquery Scan on b  (cost=0.00..30890.10 rows=1000000 width=25) (actual time=0.021..886.864 rows=1000000 loops=1)
+        ->  Limit  (cost=0.00..15890.10 rows=1000000 width=17) (actual time=0.013..740.664 rows=1000000 loops=1)
+              ->  Seq Scan on b b_1  (cost=0.00..3176571.32 rows=199908832 width=17) (actual time=0.012..703.265 rows=1000000 loops=1)
+Planning Time: 0.097 ms
+Execution Time: 1458.492 ms
+
+--------------------------------------------------
+
 QUERY PLAN
 Sort (cost=146173.34..148673.34 rows=1000000 width=12)
 (actual time=494.028..602.733 rows=1000000 loops=1)
@@ -562,8 +562,23 @@ Execution Time: 699.903 ms
 
 PostgreSQL에서 EXPLAIN 절의 출력은 더 많은 정보를 제공하기 위해 약간 강화될 수 있습니다. 계획에서 가능한 한 많이 추출하려면 다음 옵션을 켜는 것이 좋습니다.
 
+```
 test=# EXPLAIN (analyze, verbose, costs, timing, buffers)
 SELECT * FROM a ORDER BY random();
+
+Sort  (cost=834.39..859.39 rows=10000 width=44) (actual time=5.318..5.633 rows=10000 loops=1)
+  Output: aid, aname, (random())
+  Sort Key: (random())
+  Sort Method: quicksort  Memory: 853kB
+  Buffers: shared hit=45
+  ->  Seq Scan on public.a  (cost=0.00..170.00 rows=10000 width=44) (actual time=0.033..1.373 rows=10000 loops=1)
+        Output: aid, aname, random()
+        Buffers: shared hit=45
+Planning Time: 0.079 ms
+Execution Time: 6.015 ms
+
+--------------------------------------------------
+
 QUERY PLAN
 Sort (cost=834.39..859.39 rows=10000 width=12)
 (actual time=4.124.. 4.965 rows=10000 loops=1)
@@ -578,6 +593,7 @@ Buffers: shared hit=45
 Planning Time: 0.109 ms
 Execution Time: 5.895 ms
 (10 rows)
+```
 
 분석 true는 이전에 표시된 대로 실제로 쿼리를 실행합니다. verbose true는 계획에 더 많은 정보(예: 열 정보)를 추가합니다. 비용이 true이면 비용에 대한 정보가 표시됩니다. 타이밍 true도 마찬가지로 중요합니다. 좋은 런타임 데이터를 제공하여 계획에서 시간이 손실되는 부분을 볼 수 있기 때문입니다. 마지막으로, 매우 계몽될 수 있는 true 버퍼가 있습니다. 내 예에서는 쿼리를 실행하기 위해 수천 개의 버퍼에 액세스해야 함을 보여줍니다.
 
@@ -600,14 +616,13 @@ Execution Time: 5.895 ms
 
 #### 견적 검사
 
-그러나 항상 해야 할 일이 있습니다. 추정치와 실수가 합리적으로 가까운지 확인해야 합니다. 어떤 경우에는 옵티마이저가 어떤 이유로 추정치가 빗나가기 때문에 잘못된 결정을 내릴 것입니다. 때때로,
-시스템 통계가 최신 상태가 아니기 때문에 추정치가 꺼져 있을 수 있습니다. 따라서 ANALYZE 절을 실행하는 것은 확실히 시작하는 것이 좋습니다. 그러나 옵티마이저 통계는 대부분 자동 진공 데몬에 의해 처리되므로 잘못된 추정을 유발하는 다른 옵션을 고려해 볼 가치가 있습니다.
+그러나 항상 해야 할 일이 있습니다. 추정치와 실수가 합리적으로 가까운지 확인해야 합니다. 어떤 경우에는 옵티마이저가 어떤 이유로 추정치가 빗나가기 때문에 잘못된 결정을 내릴 것입니다. 때때로 시스템 통계가 최신 상태가 아니기 때문에 추정치가 빗나갈 수 있습니다. 따라서 ANALYZE 절을 실행하는 것은 확실히 시작하는 것이 좋습니다. 그러나 옵티마이저 통계는 대부분 자동 진공 데몬에 의해 처리되므로 잘못된 추정을 유발하는 다른 옵션을 고려해 볼 가치가 있습니다.
 
 테이블에 일부 데이터를 추가하는 데 도움이 되는 다음 예를 살펴보세요:
 
 ```
 test=# CREATE TABLE t_estimate AS
-SELECT FROM generate_series (1, 10000) AS id;
+	SELECT FROM generate_series (1, 10000) AS id;
 SELECT 10000
 ```
 
@@ -622,6 +637,15 @@ ANALYZE
 
 ```
 test=# EXPLAIN ANALYZE SELECT * FROM t_estimate WHERE cos (id) < 4;
+
+Seq Scan on t_estimate  (cost=0.00..210.00 rows=3333 width=4) (actual time=0.693..0.693 rows=0 loops=1)
+  Filter: (cos((id)::double precision) < '4'::double precision)
+  Rows Removed by Filter: 10000
+Planning Time: 0.350 ms
+Execution Time: 0.699 ms
+
+--------------------------------------------------
+
 QUERY PLAN
 Seq Scan on t_estimate (cost=0.00..220.00 rows=3333 width=4)
 (actual time=0.010..4.006 rows=10000 loops=1)
@@ -637,9 +661,18 @@ Execution time: 4.701 ms
 
 ```
 test # EXPLAIN ANALYZE
-SELECT *
-FROM t_estimate
-WHERE cos (id) > 4;
+	SELECT *
+	FROM t_estimate
+	WHERE cos (id) > 4;
+
+Seq Scan on t_estimate  (cost=0.00..210.00 rows=3333 width=4) (actual time=2.968..2.968 rows=0 loops=1)
+  Filter: (cos((id)::double precision) > '4'::double precision)
+  Rows Removed by Filter: 10000
+Planning Time: 0.112 ms
+Execution Time: 2.991 ms
+
+--------------------------------------------------
+
 QUERY PLAN
 Seq Scan on t_estimate (cost=0.00..220.00 rows=3333 width=4) obalaba
 (actual time-3.802..3.802 rows=0 loops=1)
@@ -670,6 +703,14 @@ ANALYZE
 
 ```
 test=# EXPLAIN ANALYZE SELECT * FROM t_estimate WHERE cos (id) > 4;
+
+Index Scan using idx_cosine on t_estimate  (cost=0.29..2.50 rows=1 width=4) (actual time=0.021..0.021 rows=0 loops=1)
+  Index Cond: (cos((id)::double precision) > '4'::double precision)
+Planning Time: 0.111 ms
+Execution Time: 0.029 ms
+
+--------------------------------------------------
+
 QUERY PLAN
 Index Scan using idx_cosine on t_estimate
 (cost=0.29..8.30 rows=1 width=4)
@@ -699,8 +740,7 @@ PostgreSQL 10.0부터 교차 열 상관 관계를 완전히 종식시킨 다변�
 
 ```
 test=# CREATE TABLE t_random AS
-SELECT * FROM generate_series (1, 10000000) AS id ORDER BY
-random();
+	SELECT * FROM generate_series (1, 10000000) AS id ORDER BY random();
 SELECT 10000000
 test=# ANALYZE t_random;
 ANALYZE
@@ -712,7 +752,23 @@ ANALYZE
 
 ```
 test=# EXPLAIN (analyze true, buffers true, costs true, timing true)
-SELECT * FROM t_random WHERE id < 1000;
+	SELECT * FROM t_random WHERE id < 1000;
+
+Gather  (cost=1000.00..118877.24 rows=1000 width=4) (actual time=1.745..472.791 rows=999 loops=1)
+  Workers Planned: 1
+  Workers Launched: 1
+  Buffers: shared hit=2144 read=42104 dirtied=5290
+  ->  Parallel Seq Scan on t_random  (cost=0.00..117777.24 rows=588 width=4) (actual time=1.327..402.445 rows=500 loops=2)
+        Filter: (id < 1000)
+        Rows Removed by Filter: 4999501
+        Buffers: shared hit=2144 read=42104 dirtied=5290
+Planning:
+  Buffers: shared hit=5
+Planning Time: 0.419 ms
+Execution Time: 472.852 ms
+
+--------------------------------------------------
+
 QUERY PLAN
 Seq Scan on t_random (cost=0.00.. 169247.71 rows=1000 width=4)
 (actual time=0.976..856.663 rows=999 loops=1)
@@ -734,8 +790,7 @@ PostgreSQL에서 전화번호를 조회하는 방법을 알아보기 위해 간�
 SELECT * FROM data WHERE phone_number = '+12345678';
 ```
 
-당신이 전화를 하고 있더라도 당신의 데이터는 여기저기 흩어져 있을 것입니다. 다음 통화를 시작하기 위해 전화를 끊는 경우 수천 명의 사람들이 동일한 작업을 수행하므로 두 개의 통화가 동일한 8,000블록에서 끝날 확률은 0에 가깝습니다. 그냥 상상
-동시에 100,000건의 통화가 진행 중입니다. 디스크에서 데이터는 무작위로 배포됩니다. 전화 번호가 자주 표시되면 각 행에 대해 디스크에서 최소 하나의 블록을 가져와야 함을 의미합니다(매우 낮은 캐시 적중률이 있다고 가정). 5,000개의 행이 반환되었다고 가정해 보겠습니다. 디스크에 5,000번 이동해야 한다고 가정하면 5,000 x 5밀리초 = 25초의 실행 시간이 발생합니다. 이 쿼리의 실행 시간은 운영 체제 또는 PostgreSQL에 의해 캐시된 양에 따라 밀리초에서 30초 사이로 달라질 수 있습니다.
+당신이 전화를 하고 있더라도 당신의 데이터는 여기저기 흩어져 있을 것입니다. 다음 통화를 시작하기 위해 전화를 끊는 경우 수천 명의 사람들이 동일한 작업을 수행하므로 두 개의 통화가 동일한 8,000블록에서 끝날 확률은 0에 가깝습니다. 동시에 100,000건의 통화가 진행 중이라고 잠시 상상해 보십시오. 디스크에서 데이터는 무작위로 배포됩니다. 전화 번호가 자주 표시되면 각 행에 대해 디스크에서 최소 하나의 블록을 가져와야 함을 의미합니다(매우 낮은 캐시 적중률이 있다고 가정). 5,000개의 행이 반환되었다고 가정해 보겠습니다. 디스크에 5,000번 이동해야 한다고 가정하면 5,000 x 5밀리초 = 25초의 실행 시간이 발생합니다. 이 쿼리의 실행 시간은 운영 체제 또는 PostgreSQL에 의해 캐시된 양에 따라 밀리초에서 30초 사이로 달라질 수 있습니다.
 
 모든 서버가 다시 시작될 때마다 PostgreSQL 및 파일 시스템 캐시가 자연스럽게 지워지므로 노드 실패 후 실제 문제가 발생할 수 있습니다.
 
@@ -749,8 +804,6 @@ Command: CLUSTER
 Description: cluster a table according to an index
 Syntax:
 CLUSTER (VERBOSE) table_name ( USING index_name]
-( 198 )
-Chapter 6
 CLUSTER (VERBOSE)
 URL: https://www.postgresql.org/docs/13/sql-cluster.html
 ```
@@ -775,9 +828,9 @@ CREATE TABLE
 test=# CREATE TABLE b (bid int);
 CREATE TABLE
 test=# INSERT INTO a VALUES (1), (2), (3);
-INSERT O 3
-test=# INSERT INTO E VALUES (2), (3), (4);
-INSERT 03
+INSERT 0 3
+test=# INSERT INTO b VALUES (2), (3), (4);
+INSERT 0 3
 ```
 
 몇 개의 행을 포함하는 두 개의 테이블이 생성되었습니다.
@@ -786,15 +839,13 @@ INSERT 03
 
 ```
 test=# SELECT * FROM a LEFT JOIN b ON (aid = bid);
-aid bid
-11
-21
-31
-(3 rows)
-
-2
-3
 ```
+
+| aid | bid |
+|---|---|
+| 1 |   |
+| 2 | 2 |
+| 3 | 3 |
 
 보시다시피 PostgreSQL은 왼쪽에서 모든 행을 가져와서 조인에 맞는 행만 나열합니다.
 
